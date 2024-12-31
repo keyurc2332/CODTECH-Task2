@@ -1,0 +1,115 @@
+/*This code cleans and preprocesses stock-related text data, generates sentence embeddings using GloVe word vectors, and visualizes the data with a word cloud and a t-SNE plot. It explores the dataset, removes noise, and reduces the dimensionality of sentence embeddings for analysis.*/
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import re
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+from nltk.stem import WordNetLemmatizer
+from wordcloud import WordCloud
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
+
+# Load the dataset
+dataset_path = 'stock_data.csv'
+df = pd.read_csv(dataset_path)
+
+# Dataset Exploration
+print("Dataset Head:")
+print(df.head())
+print("\nDataset Info:")
+print(df.info())
+print("\nDataset Missing Values:")
+print(df.isnull().sum())
+
+# Download NLTK resources
+nltk.download('punkt')  # For tokenization
+nltk.download('stopwords')  # For stopwords
+nltk.download('wordnet')  # For lemmatization
+
+# Initialize lemmatizer and stopwords
+lemmatizer = WordNetLemmatizer()
+stop_words = set(stopwords.words('english'))
+
+# Function to preprocess the text (remove special characters, tokenize, lemmatize, etc.)
+def preprocess_text(text):
+    # Remove URLs from the text
+    text = re.sub(r"http\S+|www\S+|https\S+", '', text)
+    # Remove special characters and digits
+    text = re.sub(r'\W', ' ', text)
+    text = re.sub(r'\d', '', text)
+    # Convert to lowercase
+    text = text.lower()
+    # Tokenize the text
+    tokens = word_tokenize(text)
+
+    # Remove stopwords and apply lemmatization
+    processed_tokens = [lemmatizer.lemmatize(word) for word in tokens if word not in stop_words]
+    
+    # Return the processed text as a string
+    return ' '.join(processed_tokens)
+
+# Apply the preprocess_text function to the 'Text' column
+df['Cleaned_Text'] = df['Text'].apply(preprocess_text)
+
+# Print the cleaned dataset (show original and cleaned text)
+print("\nCleaned Dataset (First 5 rows):")
+print(df[['Text', 'Cleaned_Text']].head())
+
+# GloVe embedding loading
+glove_file_path = "glove.6B.100d.txt"  # Path to GloVe file
+embedding_index = {}
+
+print("Loading GloVe embeddings...")
+# Load the embeddings into a dictionary
+with open(glove_file_path, encoding="utf-8") as f:
+    for line in f:
+        values = line.split()
+        word = values[0]
+        coefficients = np.asarray(values[1:], dtype='float32')
+        embedding_index[word] = coefficients
+print(f"Loaded {len(embedding_index)} word vectors.")
+
+# Function to create sentence embeddings
+def get_sentence_embedding(sentence, embedding_index, embedding_dim=100):
+    words = sentence.split()
+    valid_embeddings = [embedding_index[word] for word in words if word in embedding_index]
+    if not valid_embeddings:
+        return np.zeros(embedding_dim)  # Return zero vector if no valid embeddings
+    return np.mean(valid_embeddings, axis=0)  # Mean of word vectors
+
+# Generate sentence embeddings for each cleaned text
+embedding_dim = 100  # Dimensionality of the GloVe vectors
+df['Text_Embedding'] = df['Cleaned_Text'].apply(
+    lambda x: get_sentence_embedding(x, embedding_index, embedding_dim)
+)
+
+# Print sample sentence embeddings (only first 5 for brevity)
+print("\nSample Cleaned Text and Corresponding Embeddings (First 5 rows):")
+print(df[['Cleaned_Text', 'Text_Embedding']].head())
+
+# Optional: Word Cloud for visualizing most frequent words in the cleaned text
+wordcloud = WordCloud(width=800, height=400, background_color='white').generate(' '.join(df['Cleaned_Text']))
+plt.figure(figsize=(10, 6))
+plt.imshow(wordcloud, interpolation='bilinear')
+plt.axis('off')
+plt.title("Word Cloud of Cleaned Text")
+plt.show()
+
+# Optional: t-SNE for dimensionality reduction and visualization of embeddings
+pca = PCA(n_components=50)
+pca_result = pca.fit_transform(np.array(df['Text_Embedding'].tolist()))
+
+tsne = TSNE(n_components=2, random_state=42)
+tsne_result = tsne.fit_transform(pca_result)
+
+# Visualizing the t-SNE results
+plt.figure(figsize=(10, 6))
+plt.scatter(tsne_result[:, 0], tsne_result[:, 1], c='blue', marker='o', alpha=0.7)
+plt.title('t-SNE Visualization of Sentence Embeddings')
+plt.xlabel('t-SNE Component 1')
+plt.ylabel('t-SNE Component 2')
+plt.show()
